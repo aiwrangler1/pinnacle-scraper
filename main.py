@@ -1,5 +1,16 @@
 import requests
+import os
 from requests.exceptions import RequestException
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+
+
+SPREADSHEET_ID = "1obxLwONMOUbqOFuY7xw8wsnCOL3SarSq-zqjghI9-fM"
 
 
 PINNACLE_API_URL = "https://www.pinnacle.com/config/app.json"
@@ -60,6 +71,32 @@ def filter_nba_matchups(matchups):
     }
 
 
+def filter_player_props(matchups):
+    """Filter player props."""
+    # for matchup in matchups:
+    #     if (
+    #         matchup["league"]["name"] == "NBA"
+    #         and matchup["type"] == "special"
+    #         and "special" in matchup
+    #         and matchup["special"]["category"] == "Player Props"
+    #     ):
+    #         print(matchup)
+    #         input()
+
+    return {
+        matchup["id"]: {
+            "category": matchup["special"]["category"],
+            "description": matchup["special"]["description"],
+            "units": matchup["units"],
+        }
+        for matchup in matchups
+        if matchup["league"]["name"] == "NBA"
+        and matchup["type"] == "special"
+        and "special" in matchup
+        and matchup["special"]["category"] == "Player Props"
+    }
+
+
 def fetch_game_odds(matchup_id, headers):
     """Fetch game odds for a specific matchup."""
     url = f"https://guest.api.arcadia.pinnacle.com/0.1/matchups/{matchup_id}/markets/related/straight"
@@ -69,6 +106,17 @@ def fetch_game_odds(matchup_id, headers):
         return response.json()
     except RequestException as e:
         print(f"Error fetching game odds for matchup {matchup_id}: {e}")
+        return []
+
+
+def fetch_prop_odds(id, headers):
+    url = f"https://guest.api.arcadia.pinnacle.com/0.1/matchups/{id}/markets/straight"
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        return response.json()
+    except RequestException as e:
+        print(f"Error fetching prop odds for matchup {id}: {e}")
         return []
 
 
@@ -85,6 +133,18 @@ def process_game_odds(game_odds):
     }
 
 
+def process_prop_odds(prop_odds):
+    """Process prop odds and filter relevant data."""
+    return {
+        odds["key"]: {
+            "units": odds["units"] if "units" in odds else None,
+            "prices": odds["prices"],
+            "type": odds["type"],
+        }
+        for odds in prop_odds
+    }
+
+
 def main():
     api_key = get_api_key()
     if not api_key:
@@ -93,18 +153,33 @@ def main():
     headers = get_headers(api_key)
     matchups = fetch_matchups(headers)
     matchups_dict = filter_nba_matchups(matchups)
+    props_dict = filter_player_props(matchups)
 
     game_odds_dict = {}
     for matchup_id, data in matchups_dict.items():
-        print(matchup_id, data)
+        # print(matchup_id, data)
         game_odds = fetch_game_odds(matchup_id, headers)
         game_odds_dict[matchup_id] = process_game_odds(game_odds)
 
     for matchup_id, odds in game_odds_dict.items():
-        print(matchup_id)
+        # print(matchup_id)
         for key, data in odds.items():
-            print(key, data)
-        input()
+            # print(key, data)
+            pass
+
+    i = 0
+    for id, props in props_dict.items():
+        i += 1
+        prop_odds = fetch_prop_odds(id, headers)
+        props_dict[id] = process_prop_odds(prop_odds)
+
+        if i > 10:
+            break
+
+    for key, data in props_dict.items():
+        print(key)
+        for key, value in data.items():
+            print(key, value)
 
 
 if __name__ == "__main__":
